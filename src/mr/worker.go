@@ -41,9 +41,11 @@ func ihash(key string) int {
 // main/mrworker.go calls this function.
 //
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	nReduceTasks := GetNReduceTasks()
 	task := GetMapTask()
 	intermediateKeyValues := ProcessMapTask(task, mapf)
 	log.Printf("intermediate key-values %v", intermediateKeyValues)
+	log.Printf("nReduceTasks %v", nReduceTasks)
 }
 
 func ProcessMapTask(t Task, mapf func(string, string) []KeyValue) []KeyValue {
@@ -78,6 +80,16 @@ func GetMapTask() Task {
 	log.Printf("map task: %v", reply.Task)
 
 	return reply.Task
+}
+
+func GetNReduceTasks() int {
+	args := GetNReduceTasksArgs{}
+	reply := GetNReduceTasksReply{}
+
+	args.Worker = strconv.Itoa(os.Geteuid())
+	call("Coordinator.GetNReduceTasks", &args, &reply)
+
+	return reply.Value
 }
 
 //
