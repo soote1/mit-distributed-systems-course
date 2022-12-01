@@ -9,12 +9,17 @@ import (
 )
 
 type Coordinator struct {
-	// Your definitions here.
-	mapTasks chan Task
+	mapTasks     chan Task
+	nReduceTasks int
 }
 
 func (c *Coordinator) GetMapTask(args *GetTaskArgs, reply *GetTaskReply) error {
 	reply.Task = <-c.mapTasks
+	return nil
+}
+
+func (c *Coordinator) GetNReduceTasks(args *GetNReduceTasksArgs, reply *GetNReduceTasksReply) error {
+	reply.Value = c.nReduceTasks
 	return nil
 }
 
@@ -74,6 +79,7 @@ func CreateMapTasksChannel(tasks []Task, size int) chan Task {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
+	c.nReduceTasks = nReduce
 	c.mapTasks = CreateMapTasksChannel(CreateMapTasks(files), 100)
 	c.server()
 	return &c

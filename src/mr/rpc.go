@@ -24,7 +24,13 @@ type GetTaskReply struct {
 	Task Task
 }
 
-// Add your RPC definitions here.
+type GetNReduceTasksArgs struct {
+	Worker string
+}
+
+type GetNReduceTasksReply struct {
+	Value int
+}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
