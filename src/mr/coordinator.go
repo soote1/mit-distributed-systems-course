@@ -1,29 +1,22 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
-
+import (
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+)
 
 type Coordinator struct {
 	// Your definitions here.
-
+	mapTasks chan Task
 }
 
-// Your code here -- RPC handlers for the worker to call.
-
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
+func (c *Coordinator) GetMapTask(args *GetTaskArgs, reply *GetTaskReply) error {
+	reply.Task = <-c.mapTasks
 	return nil
 }
-
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -50,8 +43,28 @@ func (c *Coordinator) Done() bool {
 
 	// Your code here.
 
-
 	return ret
+}
+
+func CreateMapTasks(files []string) []Task {
+	var tasks []Task
+
+	for _, file := range files {
+		t := Task{Type: "map", InputFile: file}
+		tasks = append(tasks, t)
+	}
+
+	return tasks
+}
+
+func CreateMapTasksChannel(tasks []Task, size int) chan Task {
+	mapTasksChan := make(chan Task, size)
+
+	for _, mapTask := range tasks {
+		mapTasksChan <- mapTask
+	}
+
+	return mapTasksChan
 }
 
 //
@@ -61,10 +74,7 @@ func (c *Coordinator) Done() bool {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
-
-	// Your code here.
-
-
+	c.mapTasks = CreateMapTasksChannel(CreateMapTasks(files), 100)
 	c.server()
 	return &c
 }
