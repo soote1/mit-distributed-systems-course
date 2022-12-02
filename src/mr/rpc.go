@@ -14,6 +14,7 @@ import (
 type Task struct {
 	Type      string
 	InputFile string
+	Id        string
 }
 
 type GetTaskArgs struct {

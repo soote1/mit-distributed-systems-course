@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"strconv"
 )
 
 type Coordinator struct {
@@ -54,8 +55,8 @@ func (c *Coordinator) Done() bool {
 func CreateMapTasks(files []string) []Task {
 	var tasks []Task
 
-	for _, file := range files {
-		t := Task{Type: "map", InputFile: file}
+	for i, file := range files {
+		t := Task{Type: "map", InputFile: file, Id: strconv.Itoa(i)}
 		tasks = append(tasks, t)
 	}
 
