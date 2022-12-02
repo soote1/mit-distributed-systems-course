@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"io/ioutil"
@@ -44,8 +45,39 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	nReduceTasks := GetNReduceTasks()
 	task := GetMapTask()
 	intermediateKeyValues := ProcessMapTask(task, mapf)
+	GenerateReduceTasks(task.Id, intermediateKeyValues, nReduceTasks)
 	log.Printf("intermediate key-values %v", intermediateKeyValues)
 	log.Printf("nReduceTasks %v", nReduceTasks)
+}
+
+func GenerateReduceTasks(mapTaskId string, kvs []KeyValue, nReduceTasks int) []Task {
+	var reduceTasks []Task
+
+	for _, kv := range kvs {
+		reduceTaskId := strconv.Itoa(ihash(kv.Key) % nReduceTasks)
+		reduceTaskId = mapTaskId + "-" + reduceTaskId
+		fileName := "mr-" + reduceTaskId
+
+		file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Fatalf("cant open intermediate file %v", err)
+		}
+
+		enc := json.NewEncoder(file)
+		if err := enc.Encode(&kv); err != nil {
+			file.Close()
+			log.Fatalf("error while trying to write content in json format %v", err)
+		}
+
+		if err := file.Close(); err != nil {
+			log.Fatalf("error while intermediate file %v", err)
+		}
+
+		t := Task{Type: "reduce", InputFile: fileName, Id: reduceTaskId}
+		reduceTasks = append(reduceTasks, t)
+	}
+
+	return reduceTasks
 }
 
 func ProcessMapTask(t Task, mapf func(string, string) []KeyValue) []KeyValue {
