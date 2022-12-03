@@ -33,6 +33,14 @@ type GetNReduceTasksReply struct {
 	Value int
 }
 
+type SaveReduceTasksArgs struct {
+	ReduceTasks []Task
+	MapTaskId   string
+	Worker      string
+}
+
+type SaveReduceTaskReply struct{}
+
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
 // Can't use the current directory since

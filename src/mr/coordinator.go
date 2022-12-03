@@ -11,16 +11,30 @@ import (
 
 type Coordinator struct {
 	mapTasks     chan Task
+	reduceTasks  chan Task
 	nReduceTasks int
 }
 
-func (c *Coordinator) GetMapTask(args *GetTaskArgs, reply *GetTaskReply) error {
+func (c *Coordinator) GetMapTask(args *GetTaskArgs,
+	reply *GetTaskReply) error {
 	reply.Task = <-c.mapTasks
 	return nil
 }
 
-func (c *Coordinator) GetNReduceTasks(args *GetNReduceTasksArgs, reply *GetNReduceTasksReply) error {
+func (c *Coordinator) GetNReduceTasks(args *GetNReduceTasksArgs,
+	reply *GetNReduceTasksReply) error {
 	reply.Value = c.nReduceTasks
+	return nil
+}
+
+func (c *Coordinator) SaveReduceTasks(args *SaveReduceTasksArgs,
+	reply *SaveReduceTaskReply) error {
+	if c.reduceTasks == nil {
+		c.reduceTasks = make(chan Task, 100)
+	}
+	for _, task := range args.ReduceTasks {
+		c.reduceTasks <- task
+	}
 	return nil
 }
 

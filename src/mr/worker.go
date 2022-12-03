@@ -41,16 +41,18 @@ func ihash(key string) int {
 //
 // main/mrworker.go calls this function.
 //
-func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+func Worker(mapf func(string, string) []KeyValue,
+	reducef func(string, []string) string) {
 	nReduceTasks := GetNReduceTasks()
-	task := GetMapTask()
-	intermediateKeyValues := ProcessMapTask(task, mapf)
-	GenerateReduceTasks(task.Id, intermediateKeyValues, nReduceTasks)
-	log.Printf("intermediate key-values %v", intermediateKeyValues)
-	log.Printf("nReduceTasks %v", nReduceTasks)
+	mapTask := GetMapTask()
+	intermediateKeyValues := ProcessMapTask(mapTask, mapf)
+	reduceTasks := GenerateReduceTasks(mapTask.Id, intermediateKeyValues,
+		nReduceTasks)
+	SaveReduceTasks(mapTask.Id, reduceTasks)
 }
 
-func GenerateReduceTasks(mapTaskId string, kvs []KeyValue, nReduceTasks int) []Task {
+func GenerateReduceTasks(mapTaskId string, kvs []KeyValue,
+	nReduceTasks int) []Task {
 	var reduceTasks []Task
 
 	for _, kv := range kvs {
@@ -58,7 +60,8 @@ func GenerateReduceTasks(mapTaskId string, kvs []KeyValue, nReduceTasks int) []T
 		reduceTaskId = mapTaskId + "-" + reduceTaskId
 		fileName := "mr-" + reduceTaskId
 
-		file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+			0644)
 		if err != nil {
 			log.Fatalf("cant open intermediate file %v", err)
 		}
@@ -66,7 +69,8 @@ func GenerateReduceTasks(mapTaskId string, kvs []KeyValue, nReduceTasks int) []T
 		enc := json.NewEncoder(file)
 		if err := enc.Encode(&kv); err != nil {
 			file.Close()
-			log.Fatalf("error while trying to write content in json format %v", err)
+			log.Fatalf("error while trying to write content in json format %v",
+				err)
 		}
 
 		if err := file.Close(); err != nil {
@@ -122,6 +126,16 @@ func GetNReduceTasks() int {
 	call("Coordinator.GetNReduceTasks", &args, &reply)
 
 	return reply.Value
+}
+
+func SaveReduceTasks(mapTaskId string, tasks []Task) {
+	args := SaveReduceTasksArgs{}
+	reply := SaveReduceTaskReply{}
+
+	args.Worker = strconv.Itoa(os.Geteuid())
+	args.ReduceTasks = tasks
+	args.MapTaskId = mapTaskId
+	call("Coordinator.SaveReduceTasks", &args, &reply)
 }
 
 //
