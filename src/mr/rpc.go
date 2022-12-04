@@ -22,7 +22,7 @@ type GetTaskArgs struct {
 }
 
 type GetTaskReply struct {
-	Task Task
+	Task *Task
 }
 
 type GetNReduceTasksArgs struct {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"time"
 )
 
 //
@@ -28,6 +29,9 @@ func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
+type MapFunction func(string, string) []KeyValue
+type ReduceFunction func(string, []string) string
+
 //
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -41,19 +45,34 @@ func ihash(key string) int {
 //
 // main/mrworker.go calls this function.
 //
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+func Worker(mapf MapFunction, reducef ReduceFunction) {
 	nReduceTasks := GetNReduceTasks()
-	mapTask := GetMapTask()
-	intermediateKeyValues := ProcessMapTask(mapTask, mapf)
-	reduceTasks := GenerateReduceTasks(mapTask.Id, intermediateKeyValues,
-		nReduceTasks)
+	for {
+		log.Printf("Requesting map task")
+		mapTask := GetMapTask()
+		if mapTask != nil {
+			ProcessMapTask(mapTask, mapf, nReduceTasks)
+		} else {
+			log.Printf("No map task is available")
+		}
+		log.Printf("Waiting before sending next request")
+		time.Sleep(1 * time.Second)
+	}
+}
+
+func ProcessMapTask(mapTask *Task, mapf MapFunction, nReduceTasks int) {
+	log.Printf("Processing map task %v", mapTask)
+	keyValues := RunMapFunction(mapTask, mapf)
+	reduceTasks := GenerateReduceTasks(mapTask.Id, keyValues, nReduceTasks)
 	SaveReduceTasks(mapTask.Id, reduceTasks)
 }
 
 func GenerateReduceTasks(mapTaskId string, kvs []KeyValue,
 	nReduceTasks int) []Task {
 	var reduceTasks []Task
+	reduceTaskIds := make(map[string]bool)
+
+	log.Printf("Generating reduce tasks")
 
 	for _, kv := range kvs {
 		reduceTaskId := strconv.Itoa(ihash(kv.Key) % nReduceTasks)
@@ -77,15 +96,22 @@ func GenerateReduceTasks(mapTaskId string, kvs []KeyValue,
 			log.Fatalf("error while intermediate file %v", err)
 		}
 
-		t := Task{Type: "reduce", InputFile: fileName, Id: reduceTaskId}
-		reduceTasks = append(reduceTasks, t)
+		if _, ok := reduceTaskIds[reduceTaskId]; !ok {
+			t := Task{Type: "reduce", InputFile: fileName, Id: reduceTaskId}
+			reduceTasks = append(reduceTasks, t)
+		}
+
+		reduceTaskIds[reduceTaskId] = true
 	}
+
+	log.Printf("Generated %v reduce tasks", len(reduceTasks))
 
 	return reduceTasks
 }
 
-func ProcessMapTask(t Task, mapf func(string, string) []KeyValue) []KeyValue {
+func RunMapFunction(t *Task, mapf MapFunction) []KeyValue {
 	// open input file
+	log.Printf("Running map function")
 	file, err := os.Open(t.InputFile)
 	if err != nil {
 		log.Fatalf("cannot open %v", t.InputFile)
@@ -106,14 +132,13 @@ func ProcessMapTask(t Task, mapf func(string, string) []KeyValue) []KeyValue {
 	return intermediateKeyValues
 }
 
-func GetMapTask() Task {
+func GetMapTask() *Task {
+	log.Printf("Requesting map task")
 	args := GetTaskArgs{}
 	reply := GetTaskReply{}
 
 	args.Worker = strconv.Itoa(os.Getuid())
 	call("Coordinator.GetMapTask", &args, &reply)
-
-	log.Printf("map task: %v", reply.Task)
 
 	return reply.Task
 }
@@ -131,6 +156,8 @@ func GetNReduceTasks() int {
 func SaveReduceTasks(mapTaskId string, tasks []Task) {
 	args := SaveReduceTasksArgs{}
 	reply := SaveReduceTaskReply{}
+
+	log.Printf("Sending reduce tasks to coordinator")
 
 	args.Worker = strconv.Itoa(os.Geteuid())
 	args.ReduceTasks = tasks

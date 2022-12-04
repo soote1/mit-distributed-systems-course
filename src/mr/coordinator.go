@@ -17,7 +17,19 @@ type Coordinator struct {
 
 func (c *Coordinator) GetMapTask(args *GetTaskArgs,
 	reply *GetTaskReply) error {
-	reply.Task = <-c.mapTasks
+	log.Printf("Map task requested by %v", args.Worker)
+	select {
+	case t, ok := <-c.mapTasks:
+		if ok {
+			log.Printf("Serving map task %v", t)
+			reply.Task = &t
+		} else {
+			log.Printf("Map tasks channel was closed")
+		}
+	default:
+		log.Printf("No map task is available")
+		reply.Task = nil
+	}
 	return nil
 }
 
@@ -29,12 +41,18 @@ func (c *Coordinator) GetNReduceTasks(args *GetNReduceTasksArgs,
 
 func (c *Coordinator) SaveReduceTasks(args *SaveReduceTasksArgs,
 	reply *SaveReduceTaskReply) error {
+	log.Printf("Received request to save reduce tasks by %v", args.Worker)
 	if c.reduceTasks == nil {
+		log.Printf("Initializing channel for reduce tasks")
 		c.reduceTasks = make(chan Task, 100)
 	}
+
+	log.Printf("Saving %v reduce tasks", len(args.ReduceTasks))
 	for _, task := range args.ReduceTasks {
 		c.reduceTasks <- task
 	}
+
+	log.Printf("Reduce tasks channel filled")
 	return nil
 }
 
