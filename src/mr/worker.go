@@ -54,10 +54,24 @@ func Worker(mapf MapFunction, reducef ReduceFunction) {
 			ProcessMapTask(mapTask, mapf, nReduceTasks)
 		} else {
 			log.Printf("No map task is available")
+			reduceTask := GetReduceTask()
+			log.Printf("Reduce task: %v", reduceTask)
 		}
 		log.Printf("Waiting before sending next request")
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func GetReduceTask() *Task {
+	args := GetTaskArgs{}
+	reply := GetTaskReply{}
+
+	args.Worker = strconv.Itoa(os.Getuid())
+
+	log.Printf("Requesting reduce task")
+	call("Coordinator.GetReduceTask", &args, &reply)
+
+	return reply.Task
 }
 
 func ProcessMapTask(mapTask *Task, mapf MapFunction, nReduceTasks int) {

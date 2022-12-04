@@ -56,6 +56,25 @@ func (c *Coordinator) SaveReduceTasks(args *SaveReduceTasksArgs,
 	return nil
 }
 
+func (c *Coordinator) GetReduceTask(args *GetTaskArgs,
+	reply *GetTaskReply) error {
+	log.Printf("Reduce task requested by %v", args.Worker)
+	select {
+	case t, ok := <-c.reduceTasks:
+		if ok {
+			log.Printf("Serving reduce task %v", t)
+			reply.Task = &t
+		} else {
+			log.Printf("Reduce tasks channel was closed")
+		}
+	default:
+		log.Printf("No reduce task is available")
+		reply.Task = nil
+	}
+
+	return nil
+}
+
 //
 // start a thread that listens for RPCs from worker.go
 //
