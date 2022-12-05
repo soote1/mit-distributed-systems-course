@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/rpc"
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -48,16 +50,18 @@ func ihash(key string) int {
 func Worker(mapf MapFunction, reducef ReduceFunction) {
 	nReduceTasks := GetNReduceTasks()
 	for {
-		log.Printf("Requesting map task")
 		mapTask := GetMapTask()
 		if mapTask != nil {
 			ProcessMapTask(mapTask, mapf, nReduceTasks)
 		} else {
 			log.Printf("No map task is available")
 			reduceTask := GetReduceTask()
-			log.Printf("Reduce task: %v", reduceTask)
+			if reduceTask != nil {
+				ProcessReduceTask(reduceTask, reducef)
+			} else {
+				log.Print("No reduce task is available")
+			}
 		}
-		log.Printf("Waiting before sending next request")
 		time.Sleep(1 * time.Second)
 	}
 }
@@ -72,6 +76,86 @@ func GetReduceTask() *Task {
 	call("Coordinator.GetReduceTask", &args, &reply)
 
 	return reply.Task
+}
+
+func LoadReduceTaskInput(fileName string) []KeyValue {
+	var keyValues []KeyValue
+
+	log.Printf("Loading reduce content from input file %v", fileName)
+
+	file, err := os.OpenFile(fileName, os.O_RDONLY, 0644)
+	if err != nil {
+		log.Fatalf("Cant open intermediate file %v", err)
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	for {
+		var kv KeyValue
+		if err := decoder.Decode(&kv); err != nil {
+			if err == io.EOF {
+				break
+			} else {
+				log.Fatalf("Json decoding error found: %v", err)
+			}
+		}
+		keyValues = append(keyValues, kv)
+	}
+
+	log.Printf("Loaded %v key values", len(keyValues))
+
+	return keyValues
+}
+
+func RunReduceFunction(input []KeyValue, reducef ReduceFunction) []string {
+	var result []string
+
+	log.Printf("Running reduce function")
+
+	i := 0
+	for i < len(input) {
+		j := i + 1
+		for j < len(input) && input[j].Key == input[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, input[k].Value)
+		}
+		output := reducef(input[i].Key, values)
+
+		result = append(result, input[i].Key+" "+output+"\n")
+
+		i = j
+	}
+
+	log.Printf("Generated %v results", len(result))
+
+	return result
+}
+
+func SaveReduceOutput(fileName string, content []string) {
+	log.Printf("Saving reduce output in %v", fileName)
+	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("cant open intermediate file %v", err)
+	}
+	defer file.Close()
+
+	log.Printf("Writing %v strings into %v", len(content), fileName)
+	for i := 0; i < len(content); i++ {
+		file.WriteString(content[i])
+	}
+}
+
+func ProcessReduceTask(reduceTask *Task, reducef ReduceFunction) {
+	log.Printf("Processing reduce task %v", reduceTask)
+	mapTaskId := strings.Split(reduceTask.Id, "-")[0]
+	outFileName := "mr-out-" + mapTaskId
+
+	input := LoadReduceTaskInput(reduceTask.InputFile)
+	reduceOutput := RunReduceFunction(input, reducef)
+	SaveReduceOutput(outFileName, reduceOutput)
 }
 
 func ProcessMapTask(mapTask *Task, mapf MapFunction, nReduceTasks int) {
