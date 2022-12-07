@@ -34,9 +34,9 @@ type GetNReduceTasksReply struct {
 }
 
 type SaveReduceTasksArgs struct {
-	ReduceTasks []Task
-	MapTaskId   string
-	Worker      string
+	ReduceTaskLocations []string
+	MapTaskId           string
+	Worker              string
 }
 
 type SaveReduceTaskReply struct{}

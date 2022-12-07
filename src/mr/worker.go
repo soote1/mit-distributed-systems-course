@@ -162,12 +162,12 @@ func ProcessMapTask(mapTask *Task, mapf MapFunction, nReduceTasks int) {
 	log.Printf("Processing map task %v", mapTask)
 	keyValues := RunMapFunction(mapTask, mapf)
 	reduceTasks := GenerateReduceTasks(mapTask.Id, keyValues, nReduceTasks)
-	SaveReduceTasks(mapTask.Id, reduceTasks)
+	SaveReduceTaskLocations(mapTask.Id, reduceTasks)
 }
 
 func GenerateReduceTasks(mapTaskId string, kvs []KeyValue,
-	nReduceTasks int) []Task {
-	var reduceTasks []Task
+	nReduceTasks int) []string {
+	var reduceTasksLocations []string
 	reduceTaskIds := make(map[string]bool)
 
 	log.Printf("Generating reduce tasks")
@@ -186,25 +186,21 @@ func GenerateReduceTasks(mapTaskId string, kvs []KeyValue,
 		enc := json.NewEncoder(file)
 		if err := enc.Encode(&kv); err != nil {
 			file.Close()
-			log.Fatalf("error while trying to write content in json format %v",
-				err)
+			log.Fatalf("error while trying to write content in json format %v", err)
 		}
 
 		if err := file.Close(); err != nil {
-			log.Fatalf("error while intermediate file %v", err)
+			log.Fatalf("error while closing intermediate file %v", err)
 		}
 
 		if _, ok := reduceTaskIds[reduceTaskId]; !ok {
-			t := Task{Type: "reduce", InputFile: fileName, Id: reduceTaskId}
-			reduceTasks = append(reduceTasks, t)
+			reduceTasksLocations = append(reduceTasksLocations, fileName)
 		}
 
 		reduceTaskIds[reduceTaskId] = true
 	}
 
-	log.Printf("Generated %v reduce tasks", len(reduceTasks))
-
-	return reduceTasks
+	return reduceTasksLocations
 }
 
 func RunMapFunction(t *Task, mapf MapFunction) []KeyValue {
@@ -251,16 +247,16 @@ func GetNReduceTasks() int {
 	return reply.Value
 }
 
-func SaveReduceTasks(mapTaskId string, tasks []Task) {
+func SaveReduceTaskLocations(mapTaskId string, tasks []string) {
 	args := SaveReduceTasksArgs{}
 	reply := SaveReduceTaskReply{}
 
 	log.Printf("Sending reduce tasks to coordinator")
 
 	args.Worker = strconv.Itoa(os.Geteuid())
-	args.ReduceTasks = tasks
+	args.ReduceTaskLocations = tasks
 	args.MapTaskId = mapTaskId
-	call("Coordinator.SaveReduceTasks", &args, &reply)
+	call("Coordinator.SaveReduceTaskLocations", &args, &reply)
 }
 
 //

@@ -7,12 +7,14 @@ import (
 	"net/rpc"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Coordinator struct {
-	mapTasks     chan Task
-	reduceTasks  chan Task
-	nReduceTasks int
+	mapTasks            chan Task
+	reduceTasks         chan Task
+	nReduceTasks        int
+	reduceTaskLocations map[string][]string
 }
 
 func (c *Coordinator) GetMapTask(args *GetTaskArgs,
@@ -39,20 +41,21 @@ func (c *Coordinator) GetNReduceTasks(args *GetNReduceTasksArgs,
 	return nil
 }
 
-func (c *Coordinator) SaveReduceTasks(args *SaveReduceTasksArgs,
+func (c *Coordinator) SaveReduceTaskLocations(args *SaveReduceTasksArgs,
 	reply *SaveReduceTaskReply) error {
-	log.Printf("Received request to save reduce tasks by %v", args.Worker)
-	if c.reduceTasks == nil {
-		log.Printf("Initializing channel for reduce tasks")
-		c.reduceTasks = make(chan Task, 100)
+	log.Printf("Saving reduce tasks locations from worker %v", args.Worker)
+
+	if c.reduceTaskLocations == nil {
+		log.Print("Initializing reduce task-locations map")
+		c.reduceTaskLocations = make(map[string][]string)
 	}
 
-	log.Printf("Saving %v reduce tasks", len(args.ReduceTasks))
-	for _, task := range args.ReduceTasks {
-		c.reduceTasks <- task
+	for _, location := range args.ReduceTaskLocations {
+		reduceTaskId := strings.Split(location, "-")[2]
+		c.reduceTaskLocations[reduceTaskId] = append(
+			c.reduceTaskLocations[reduceTaskId], location)
 	}
 
-	log.Printf("Reduce tasks channel filled")
 	return nil
 }
 
@@ -69,6 +72,7 @@ func (c *Coordinator) GetReduceTask(args *GetTaskArgs,
 		}
 	default:
 		log.Printf("No reduce task is available")
+		log.Printf("Reduce task-locations %v", c.reduceTaskLocations)
 		reply.Task = nil
 	}
 
