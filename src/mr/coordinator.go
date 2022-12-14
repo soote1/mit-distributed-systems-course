@@ -141,7 +141,7 @@ func CreateMapTasks(files []string) []Task {
 	var tasks []Task
 
 	for i, file := range files {
-		t := Task{Type: "map", InputFile: file, Id: strconv.Itoa(i)}
+		t := Task{Type: "map", Inputs: []string{file}, Id: strconv.Itoa(i)}
 		tasks = append(tasks, t)
 	}
 

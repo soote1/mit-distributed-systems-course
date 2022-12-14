@@ -12,9 +12,9 @@ import (
 )
 
 type Task struct {
-	Type      string
-	InputFile string
-	Id        string
+	Type   string
+	Inputs []string
+	Id     string
 }
 
 type GetTaskArgs struct {

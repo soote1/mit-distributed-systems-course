@@ -78,28 +78,30 @@ func GetReduceTask() *Task {
 	return reply.Task
 }
 
-func LoadReduceTaskInput(fileName string) []KeyValue {
+func LoadReduceTaskInput(fileNames []string) []KeyValue {
 	var keyValues []KeyValue
 
-	log.Printf("Loading reduce content from input file %v", fileName)
+	log.Printf("Loading reduce content from input files %v", fileNames)
 
-	file, err := os.OpenFile(fileName, os.O_RDONLY, 0644)
-	if err != nil {
-		log.Fatalf("Cant open intermediate file %v", err)
-	}
-	defer file.Close()
-
-	decoder := json.NewDecoder(file)
-	for {
-		var kv KeyValue
-		if err := decoder.Decode(&kv); err != nil {
-			if err == io.EOF {
-				break
-			} else {
-				log.Fatalf("Json decoding error found: %v", err)
-			}
+	for _, fileName := range fileNames {
+		file, err := os.OpenFile(fileName, os.O_RDONLY, 0644)
+		if err != nil {
+			log.Fatalf("Cant open intermediate file %v", err)
 		}
-		keyValues = append(keyValues, kv)
+		defer file.Close()
+
+		decoder := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := decoder.Decode(&kv); err != nil {
+				if err == io.EOF {
+					break
+				} else {
+					log.Fatalf("Json decoding error found: %v", err)
+				}
+			}
+			keyValues = append(keyValues, kv)
+		}
 	}
 
 	log.Printf("Loaded %v key values", len(keyValues))
@@ -153,7 +155,7 @@ func ProcessReduceTask(reduceTask *Task, reducef ReduceFunction) {
 	mapTaskId := strings.Split(reduceTask.Id, "-")[0]
 	outFileName := "mr-out-" + mapTaskId
 
-	input := LoadReduceTaskInput(reduceTask.InputFile)
+	input := LoadReduceTaskInput(reduceTask.Inputs)
 	reduceOutput := RunReduceFunction(input, reducef)
 	SaveReduceOutput(outFileName, reduceOutput)
 }
@@ -206,20 +208,21 @@ func GenerateReduceTasks(mapTaskId string, kvs []KeyValue,
 func RunMapFunction(t *Task, mapf MapFunction) []KeyValue {
 	// open input file
 	log.Printf("Running map function")
-	file, err := os.Open(t.InputFile)
+	inputFile := t.Inputs[0]
+	file, err := os.Open(inputFile)
 	if err != nil {
-		log.Fatalf("cannot open %v", t.InputFile)
+		log.Fatalf("cannot open %v", inputFile)
 	}
 	defer file.Close()
 
 	// load split content
 	content, err := ioutil.ReadAll(file)
 	if err != nil {
-		log.Fatalf("cannot read %v", t.InputFile)
+		log.Fatalf("cannot read %v", inputFile)
 	}
 
 	// run map function
-	intermediateKeyValues := mapf(t.InputFile, string(content))
+	intermediateKeyValues := mapf(inputFile, string(content))
 
 	// return sorted list of intermediate key-values
 	sort.Sort(ByKey(intermediateKeyValues))
