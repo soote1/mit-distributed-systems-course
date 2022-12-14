@@ -156,6 +156,7 @@ func ProcessReduceTask(reduceTask *Task, reducef ReduceFunction) {
 	outFileName := "mr-out-" + mapTaskId
 
 	input := LoadReduceTaskInput(reduceTask.Inputs)
+	sort.Sort(ByKey(input))
 	reduceOutput := RunReduceFunction(input, reducef)
 	SaveReduceOutput(outFileName, reduceOutput)
 }
@@ -224,8 +225,6 @@ func RunMapFunction(t *Task, mapf MapFunction) []KeyValue {
 	// run map function
 	intermediateKeyValues := mapf(inputFile, string(content))
 
-	// return sorted list of intermediate key-values
-	sort.Sort(ByKey(intermediateKeyValues))
 	return intermediateKeyValues
 }
 
