@@ -88,7 +88,16 @@ func (c *Coordinator) GetReduceTask(args *GetTaskArgs,
 		}
 	}
 
+	// TODO: need to refactor this block
 	if mapFinished {
+		if c.reduceTasks == nil {
+			c.reduceTasks = make(chan Task, c.nReduceTasks)
+			for taskId, inputs := range c.reduceTaskLocations {
+				t := Task{Type: "reduce", Id: taskId, Inputs: inputs}
+				c.reduceTasks <- t
+			}
+		}
+
 		select {
 		case t, ok := <-c.reduceTasks:
 			if ok {
