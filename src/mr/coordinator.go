@@ -8,13 +8,20 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+type MapTaskState struct {
+	state map[string]string
+	mu    sync.Mutex
+}
 
 type Coordinator struct {
 	mapTasks            chan Task
 	reduceTasks         chan Task
 	nReduceTasks        int
 	reduceTaskLocations map[string][]string
+	mapTaskState        MapTaskState
 }
 
 func (c *Coordinator) GetMapTask(args *GetTaskArgs,
@@ -25,6 +32,9 @@ func (c *Coordinator) GetMapTask(args *GetTaskArgs,
 		if ok {
 			log.Printf("Serving map task %v", t)
 			reply.Task = &t
+			c.mapTaskState.mu.Lock()
+			defer c.mapTaskState.mu.Unlock()
+			c.mapTaskState.state[t.Id] = "in progress"
 		} else {
 			log.Printf("Map tasks channel was closed")
 		}
@@ -56,24 +66,44 @@ func (c *Coordinator) SaveReduceTaskLocations(args *SaveReduceTasksArgs,
 			c.reduceTaskLocations[reduceTaskId], location)
 	}
 
+	c.mapTaskState.mu.Lock()
+	defer c.mapTaskState.mu.Unlock()
+	c.mapTaskState.state[args.MapTaskId] = "done"
+
 	return nil
 }
 
 func (c *Coordinator) GetReduceTask(args *GetTaskArgs,
 	reply *GetTaskReply) error {
 	log.Printf("Reduce task requested by %v", args.Worker)
-	select {
-	case t, ok := <-c.reduceTasks:
-		if ok {
-			log.Printf("Serving reduce task %v", t)
-			reply.Task = &t
-		} else {
-			log.Printf("Reduce tasks channel was closed")
+
+	c.mapTaskState.mu.Lock()
+	defer c.mapTaskState.mu.Unlock()
+	mapFinished := true
+	log.Printf("mapTaskState %v", c.mapTaskState.state)
+	for taskId, state := range c.mapTaskState.state {
+		if state != "done" {
+			log.Printf("Map task not finished yet: %v", taskId)
+			mapFinished = false
 		}
-	default:
-		log.Printf("No reduce task is available")
-		log.Printf("Reduce task-locations %v", c.reduceTaskLocations)
-		reply.Task = nil
+	}
+
+	if mapFinished {
+		select {
+		case t, ok := <-c.reduceTasks:
+			if ok {
+				log.Printf("Serving reduce task %v", t)
+				reply.Task = &t
+			} else {
+				log.Printf("Reduce tasks channel was closed")
+			}
+		default:
+			log.Printf("No reduce task is available")
+			log.Printf("Reduce task-locations %v", c.reduceTaskLocations)
+			reply.Task = nil
+		}
+	} else {
+		log.Print("Map phase not finished yet")
 	}
 
 	return nil
@@ -136,7 +166,14 @@ func CreateMapTasksChannel(tasks []Task, size int) chan Task {
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 	c.nReduceTasks = nReduce
-	c.mapTasks = CreateMapTasksChannel(CreateMapTasks(files), 100)
+	mapTasks := CreateMapTasks(files)
+	c.mapTaskState.mu.Lock()
+	defer c.mapTaskState.mu.Unlock()
+	c.mapTaskState.state = make(map[string]string)
+	for _, t := range mapTasks {
+		c.mapTaskState.state[t.Id] = "pending"
+	}
+	c.mapTasks = CreateMapTasksChannel(mapTasks, 100)
 	c.server()
 	return &c
 }
