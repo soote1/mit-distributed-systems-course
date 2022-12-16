@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type MapTaskState struct {
@@ -16,12 +17,93 @@ type MapTaskState struct {
 	mu    sync.Mutex
 }
 
+type ReduceTaskState struct {
+	state map[string]string
+	mu    sync.Mutex
+}
+
+type ReduceTaskLocations struct {
+	locations map[string][]string
+	mu        sync.Mutex
+}
+
 type Coordinator struct {
+	mapSplits           []string
 	mapTasks            chan Task
 	reduceTasks         chan Task
 	nReduceTasks        int
-	reduceTaskLocations map[string][]string
+	reduceTaskLocations ReduceTaskLocations
 	mapTaskState        MapTaskState
+	reduceTaskState     ReduceTaskState
+	state               string
+	done                chan bool
+}
+
+func (c *Coordinator) handleState() {
+	for {
+		log.Printf("coordinator.state: %v", c.state)
+		switch c.state {
+		case "initial":
+			c.mapTaskState.mu.Lock()
+			mapTasks := CreateMapTasks(c.mapSplits)
+			c.mapTaskState.state = make(map[string]string)
+			for _, t := range mapTasks {
+				c.mapTasks <- t
+				c.mapTaskState.state[t.Id] = "pending"
+			}
+			c.mapTaskState.mu.Unlock()
+			c.state = "map"
+		case "map":
+			c.mapTaskState.mu.Lock()
+			mapFinished := true
+			for _, state := range c.mapTaskState.state {
+				if state != "done" {
+					mapFinished = false
+					break
+				}
+			}
+			c.mapTaskState.mu.Unlock()
+
+			if mapFinished {
+				c.reduceTaskState.mu.Lock()
+				c.reduceTaskState.state = make(map[string]string)
+				for taskId, inputs := range c.reduceTaskLocations.locations {
+					t := Task{Type: "reduce", Id: taskId, Inputs: inputs}
+					c.reduceTasks <- t
+					c.reduceTaskState.state[t.Id] = "pending"
+				}
+				c.reduceTaskState.mu.Unlock()
+				c.state = "reduce"
+			}
+		case "reduce":
+			reduceFinished := true
+			c.reduceTaskState.mu.Lock()
+			for _, state := range c.reduceTaskState.state {
+				if state != "done" {
+					reduceFinished = false
+					break
+				}
+			}
+			c.reduceTaskState.mu.Unlock()
+
+			if reduceFinished {
+				c.state = "finished"
+			}
+		case "finished":
+			log.Print("MapReduce process finished")
+			c.done <- true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func (c *Coordinator) ReduceTaskDone(args *ReduceTaskDoneArgs,
+	reply *ReduceTaskDoneReply) error {
+	c.reduceTaskState.mu.Lock()
+	defer c.reduceTaskState.mu.Unlock()
+	c.reduceTaskState.state[args.TaskId] = "done"
+	return nil
 }
 
 func (c *Coordinator) GetMapTask(args *GetTaskArgs,
@@ -55,15 +137,13 @@ func (c *Coordinator) SaveReduceTaskLocations(args *SaveReduceTasksArgs,
 	reply *SaveReduceTaskReply) error {
 	log.Printf("Saving reduce tasks locations from worker %v", args.Worker)
 
-	if c.reduceTaskLocations == nil {
-		log.Print("Initializing reduce task-locations map")
-		c.reduceTaskLocations = make(map[string][]string)
-	}
+	c.reduceTaskLocations.mu.Lock()
+	defer c.reduceTaskLocations.mu.Unlock()
 
 	for _, location := range args.ReduceTaskLocations {
 		reduceTaskId := strings.Split(location, "-")[2]
-		c.reduceTaskLocations[reduceTaskId] = append(
-			c.reduceTaskLocations[reduceTaskId], location)
+		c.reduceTaskLocations.locations[reduceTaskId] = append(
+			c.reduceTaskLocations.locations[reduceTaskId], location)
 	}
 
 	c.mapTaskState.mu.Lock()
@@ -77,42 +157,17 @@ func (c *Coordinator) GetReduceTask(args *GetTaskArgs,
 	reply *GetTaskReply) error {
 	log.Printf("Reduce task requested by %v", args.Worker)
 
-	c.mapTaskState.mu.Lock()
-	defer c.mapTaskState.mu.Unlock()
-	mapFinished := true
-	log.Printf("mapTaskState %v", c.mapTaskState.state)
-	for taskId, state := range c.mapTaskState.state {
-		if state != "done" {
-			log.Printf("Map task not finished yet: %v", taskId)
-			mapFinished = false
+	select {
+	case t, ok := <-c.reduceTasks:
+		if ok {
+			log.Printf("Serving reduce task %v", t)
+			reply.Task = &t
+		} else {
+			log.Printf("Reduce tasks channel was closed")
 		}
-	}
-
-	// TODO: need to refactor this block
-	if mapFinished {
-		if c.reduceTasks == nil {
-			c.reduceTasks = make(chan Task, c.nReduceTasks)
-			for taskId, inputs := range c.reduceTaskLocations {
-				t := Task{Type: "reduce", Id: taskId, Inputs: inputs}
-				c.reduceTasks <- t
-			}
-		}
-
-		select {
-		case t, ok := <-c.reduceTasks:
-			if ok {
-				log.Printf("Serving reduce task %v", t)
-				reply.Task = &t
-			} else {
-				log.Printf("Reduce tasks channel was closed")
-			}
-		default:
-			log.Printf("No reduce task is available")
-			log.Printf("Reduce task-locations %v", c.reduceTaskLocations)
-			reply.Task = nil
-		}
-	} else {
-		log.Print("Map phase not finished yet")
+	default:
+		log.Printf("No reduce task is available")
+		reply.Task = nil
 	}
 
 	return nil
@@ -139,11 +194,12 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
-
-	// Your code here.
-
-	return ret
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
 }
 
 func CreateMapTasks(files []string) []Task {
@@ -157,32 +213,22 @@ func CreateMapTasks(files []string) []Task {
 	return tasks
 }
 
-func CreateMapTasksChannel(tasks []Task, size int) chan Task {
-	mapTasksChan := make(chan Task, size)
-
-	for _, mapTask := range tasks {
-		mapTasksChan <- mapTask
-	}
-
-	return mapTasksChan
-}
-
 //
 // create a Coordinator.
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
-	c.nReduceTasks = nReduce
-	mapTasks := CreateMapTasks(files)
-	c.mapTaskState.mu.Lock()
-	defer c.mapTaskState.mu.Unlock()
-	c.mapTaskState.state = make(map[string]string)
-	for _, t := range mapTasks {
-		c.mapTaskState.state[t.Id] = "pending"
+	c := Coordinator{
+		nReduceTasks: nReduce,
+		mapSplits:    files,
+		state:        "initial",
+		mapTasks:     make(chan Task, len(files)),
+		reduceTasks:  make(chan Task, nReduce),
+		done:         make(chan bool, 1),
 	}
-	c.mapTasks = CreateMapTasksChannel(mapTasks, 100)
+	c.reduceTaskLocations.locations = make(map[string][]string)
+	go c.handleState()
 	c.server()
 	return &c
 }

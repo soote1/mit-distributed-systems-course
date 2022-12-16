@@ -41,6 +41,13 @@ type SaveReduceTasksArgs struct {
 
 type SaveReduceTaskReply struct{}
 
+type ReduceTaskDoneArgs struct {
+	TaskId string
+	Worker string
+}
+
+type ReduceTaskDoneReply struct{}
+
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
 // Can't use the current directory since

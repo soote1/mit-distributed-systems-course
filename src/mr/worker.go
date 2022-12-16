@@ -150,6 +150,17 @@ func SaveReduceOutput(fileName string, content []string) {
 	}
 }
 
+func NotifyReduceTaskDone(taskId string) {
+	args := ReduceTaskDoneArgs{}
+	reply := ReduceTaskDoneReply{}
+
+	log.Printf("Notifying reduce task %v is done", taskId)
+
+	args.Worker = strconv.Itoa(os.Geteuid())
+	args.TaskId = taskId
+	call("Coordinator.ReduceTaskDone", &args, &reply)
+}
+
 func ProcessReduceTask(reduceTask *Task, reducef ReduceFunction) {
 	log.Printf("Processing reduce task %v", reduceTask)
 	mapTaskId := strings.Split(reduceTask.Id, "-")[0]
@@ -159,6 +170,7 @@ func ProcessReduceTask(reduceTask *Task, reducef ReduceFunction) {
 	sort.Sort(ByKey(input))
 	reduceOutput := RunReduceFunction(input, reducef)
 	SaveReduceOutput(outFileName, reduceOutput)
+	NotifyReduceTaskDone(reduceTask.Id)
 }
 
 func ProcessMapTask(mapTask *Task, mapf MapFunction, nReduceTasks int) {
