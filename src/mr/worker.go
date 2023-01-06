@@ -2,7 +2,6 @@ package mr
 
 import (
 	"encoding/json"
-	"fmt"
 	"hash/fnv"
 	"io"
 	"io/ioutil"
@@ -55,27 +54,32 @@ func Worker(mapf MapFunction, reducef ReduceFunction) {
 			ProcessMapTask(mapTask, mapf, nReduceTasks)
 		} else {
 			log.Printf("No map task is available")
-			reduceTask := GetReduceTask()
+			reduceTask, keepAlive := GetReduceTask()
 			if reduceTask != nil {
 				ProcessReduceTask(reduceTask, reducef)
 			} else {
-				log.Print("No reduce task is available")
+				log.Print("No reduce task is available. Will exit")
+			}
+
+			if !keepAlive {
+				log.Print("Failed to contact coordinator. Will exit.")
+				break
 			}
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
-func GetReduceTask() *Task {
+func GetReduceTask() (*Task, bool) {
 	args := GetTaskArgs{}
 	reply := GetTaskReply{}
 
 	args.Worker = strconv.Itoa(os.Getuid())
 
 	log.Printf("Requesting reduce task")
-	call("Coordinator.GetReduceTask", &args, &reply)
+	result := call("Coordinator.GetReduceTask", &args, &reply)
 
-	return reply.Task
+	return reply.Task, result
 }
 
 func LoadReduceTaskInput(fileNames []string) []KeyValue {
@@ -292,6 +296,5 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		return true
 	}
 
-	fmt.Println(err)
 	return false
 }
